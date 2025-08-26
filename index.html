@@ -523,17 +523,54 @@
                 }
             }
             
+            async function encryptMetadata(metadata, key, iv) {
+                // Convert metadata to JSON string and then to ArrayBuffer
+                const metadataStr = JSON.stringify(metadata);
+                const metadataBuffer = new TextEncoder().encode(metadataStr);
+                
+                // Encrypt the metadata
+                const encryptedMetadata = await crypto.subtle.encrypt(
+                    {
+                        name: 'AES-GCM',
+                        iv: iv
+                    },
+                    key,
+                    metadataBuffer
+                );
+                
+                return new Uint8Array(encryptedMetadata);
+            }
+            
+            async function decryptMetadata(encryptedMetadata, key, iv) {
+                // Decrypt the metadata
+                const decryptedMetadata = await crypto.subtle.decrypt(
+                    {
+                        name: 'AES-GCM',
+                        iv: iv
+                    },
+                    key,
+                    encryptedMetadata
+                );
+                
+                // Convert back to JSON object
+                const metadataStr = new TextDecoder().decode(decryptedMetadata);
+                return JSON.parse(metadataStr);
+            }
+            
+            function getFileNameWithoutExtension(filename) {
+                // Remove the file extension if it exists
+                if (filename.includes('.')) {
+                    return filename.substring(0, filename.lastIndexOf('.'));
+                }
+                return filename;
+            }
+            
             async function encryptFile() {
                 if (!selectedFile || !passwordInput.value) return;
                 
                 try {
                     updateProgress(10);
                     showStatus('Encrypting file...');
-                    
-                    // Get file extension
-                    const fileExt = selectedFile.name.includes('.') 
-                        ? selectedFile.name.substring(selectedFile.name.lastIndexOf('.'))
-                        : '';
                     
                     // Generate a random salt
                     const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -551,22 +588,34 @@
                         ['encrypt']
                     );
                     
-                    // Generate a random IV
-                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    // Generate a random IV for file content
+                    const fileIv = crypto.getRandomValues(new Uint8Array(12));
+                    
+                    // Generate a random IV for metadata
+                    const metadataIv = crypto.getRandomValues(new Uint8Array(12));
                     
                     // Read file as ArrayBuffer
                     const fileBuffer = await readFileAsArrayBuffer(selectedFile);
                     updateProgress(50);
                     
-                    // Create metadata: file extension length + file extension
-                    const extData = new TextEncoder().encode(fileExt);
-                    const extLength = new Uint8Array([extData.length]);
+                    // Prepare metadata (file name, type, MIME)
+                    const metadata = {
+                        name: selectedFile.name,
+                        type: selectedFile.type,
+                        size: selectedFile.size
+                    };
+                    
+                    // Encrypt the metadata
+                    const encryptedMetadata = await encryptMetadata(metadata, key, metadataIv);
+                    
+                    // Create metadata length indicator (4 bytes)
+                    const metadataLength = new Uint32Array([encryptedMetadata.length]);
                     
                     // Encrypt the file data
                     const encryptedData = await crypto.subtle.encrypt(
                         {
                             name: 'AES-GCM',
-                            iv: iv
+                            iv: fileIv
                         },
                         key,
                         fileBuffer
@@ -574,34 +623,32 @@
                     
                     updateProgress(70);
                     
-                    // Create the output file: salt + iv + extLength + extData + encrypted data
+                    // Create the output file: salt + fileIv + metadataIv + metadataLength + encryptedMetadata + encrypted data
                     const result = new Uint8Array(
                         salt.length + 
-                        iv.length + 
-                        extLength.length + 
-                        extData.length + 
+                        fileIv.length + 
+                        metadataIv.length + 
+                        metadataLength.byteLength + 
+                        encryptedMetadata.length + 
                         encryptedData.byteLength
                     );
                     
                     let offset = 0;
                     result.set(salt, offset); offset += salt.length;
-                    result.set(iv, offset); offset += iv.length;
-                    result.set(extLength, offset); offset += extLength.length;
-                    result.set(extData, offset); offset += extData.length;
+                    result.set(fileIv, offset); offset += fileIv.length;
+                    result.set(metadataIv, offset); offset += metadataIv.length;
+                    result.set(new Uint8Array(metadataLength.buffer), offset); offset += metadataLength.byteLength;
+                    result.set(encryptedMetadata, offset); offset += encryptedMetadata.length;
                     result.set(new Uint8Array(encryptedData), offset);
                     
                     updateProgress(90);
                     
                     // Create and download the encrypted file with .zip extension
                     const encryptedBlob = new Blob([result], { type: 'application/zip' });
-                    let encryptedFileName = selectedFile.name;
                     
-                    // Remove existing extension and add .zip
-                    if (encryptedFileName.includes('.')) {
-                        encryptedFileName = encryptedFileName.substring(0, encryptedFileName.lastIndexOf('.')) + '.zip';
-                    } else {
-                        encryptedFileName += '.zip';
-                    }
+                    // Use the filename without extension + .zip
+                    const baseName = getFileNameWithoutExtension(selectedFile.name);
+                    const encryptedFileName = baseName + '.zip';
                     
                     downloadFile(encryptedBlob, encryptedFileName);
                     
@@ -635,15 +682,17 @@
                     // Extract salt (first 16 bytes)
                     const salt = fileView.slice(offset, offset + 16); offset += 16;
                     
-                    // Extract IV (next 12 bytes)
-                    const iv = fileView.slice(offset, offset + 12); offset += 12;
+                    // Extract file IV (next 12 bytes)
+                    const fileIv = fileView.slice(offset, offset + 12); offset += 12;
                     
-                    // Extract extension length (1 byte)
-                    const extLength = fileView[offset]; offset += 1;
+                    // Extract metadata IV (next 12 bytes)
+                    const metadataIv = fileView.slice(offset, offset + 12); offset += 12;
                     
-                    // Extract extension
-                    const extData = fileView.slice(offset, offset + extLength); offset += extLength;
-                    const fileExt = new TextDecoder().decode(extData);
+                    // Extract metadata length (4 bytes)
+                    const metadataLength = new Uint32Array(fileView.slice(offset, offset + 4).buffer)[0]; offset += 4;
+                    
+                    // Extract encrypted metadata
+                    const encryptedMetadata = fileView.slice(offset, offset + metadataLength); offset += metadataLength;
                     
                     // Extract encrypted data (the rest)
                     const encryptedData = fileView.slice(offset);
@@ -663,11 +712,14 @@
                         ['decrypt']
                     );
                     
-                    // Decrypt the data
+                    // Decrypt the metadata first
+                    const metadata = await decryptMetadata(encryptedMetadata, key, metadataIv);
+                    
+                    // Decrypt the file data
                     const decryptedData = await crypto.subtle.decrypt(
                         {
                             name: 'AES-GCM',
-                            iv: iv
+                            iv: fileIv
                         },
                         key,
                         encryptedData
@@ -675,17 +727,9 @@
                     
                     updateProgress(80);
                     
-                    // Create and download the decrypted file with original extension
-                    const decryptedBlob = new Blob([decryptedData]);
-                    let decryptedFileName = selectedFile.name;
-                    
-                    // Remove .zip extension
-                    if (decryptedFileName.endsWith('.zip')) {
-                        decryptedFileName = decryptedFileName.slice(0, -4);
-                    }
-                    
-                    // Add original file extension
-                    decryptedFileName += fileExt;
+                    // Create and download the decrypted file with original name and type
+                    const decryptedBlob = new Blob([decryptedData], { type: metadata.type });
+                    const decryptedFileName = metadata.name;
                     
                     downloadFile(decryptedBlob, decryptedFileName);
                     
