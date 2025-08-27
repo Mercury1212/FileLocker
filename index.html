@@ -154,10 +154,12 @@
         }
         .password-section {
             margin: 20px 0;
+            position: relative;
         }
-        input[type="password"] {
+        input[type="password"], input[type="text"] {
             width: 100%;
             padding: 15px;
+            padding-right: 50px;
             border: 2px solid var(--border-color);
             border-radius: 8px;
             font-size: 16px;
@@ -166,9 +168,30 @@
             background-color: var(--bg-primary);
             color: var(--text-primary);
         }
-        input[type="password"]:focus {
+        input[type="password"]:focus, input[type="text"]:focus {
             border-color: var(--primary);
             outline: none;
+        }
+        /* PROFESSIONAL ICON BUTTON STYLES */
+        .password-toggle {
+            position: absolute;
+            right: 15px;
+            top: 15px;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 22px;
+            color: var(--primary);
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+        }
+        .password-toggle svg {
+            width: 24px;
+            height: 24px;
+            display: block;
         }
         .btn {
             display: inline-block;
@@ -308,6 +331,14 @@
         </div>
         <div class="password-section">
             <input type="password" id="password" placeholder="Enter encryption password (min 8 chars)" autocomplete="off">
+            <button type="button" id="togglePassword" class="password-toggle" aria-label="Toggle password visibility">
+                <!-- Start hidden password SVG (eye closed) -->
+                <svg id="eyeClosedIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                          d="M3 3l18 18M10.73 10.73A3 3 0 0012 15a3 3 0 003-3c0-1.27-.77-2.36-1.87-2.82M17.94 17.94C15.82 19.33 13.15 20 12 20c-5.52 0-10-7-10-8 0-.79 1.55-3.9 6.06-6.94M9.1 5.1C10.44 4.4 11.74 4 12 4c5.52 0 10 7 10 8 0 .47-1.11 2.84-4.06 5.94" />
+                </svg>
+                <!-- End hidden password SVG -->
+            </button>
         </div>
         <div class="progress" id="progress">
             <div class="progress-bar" id="progressBar"></div>
@@ -337,6 +368,7 @@
             const fileName = document.getElementById('fileName');
             const fileSize = document.getElementById('fileSize');
             const passwordInput = document.getElementById('password');
+            const togglePasswordBtn = document.getElementById('togglePassword');
             const encryptBtn = document.getElementById('encryptBtn');
             const decryptBtn = document.getElementById('decryptBtn');
             const clearBtn = document.getElementById('clearBtn');
@@ -345,6 +377,23 @@
             const progressBar = document.getElementById('progressBar');
             const themeToggle = document.getElementById('theme-toggle');
             let selectedFile = null;
+            let passwordVisible = false;
+
+            // SVGs for eye open and eye closed
+            const eyeOpenSVG = `
+                <svg id="eyeOpenIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            `;
+            const eyeClosedSVG = `
+                <svg id="eyeClosedIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                          d="M3 3l18 18M10.73 10.73A3 3 0 0012 15a3 3 0 003-3c0-1.27-.77-2.36-1.87-2.82M17.94 17.94C15.82 19.33 13.15 20 12 20c-5.52 0-10-7-10-8 0-.79 1.55-3.9 6.06-6.94M9.1 5.1C10.44 4.4 11.74 4 12 4c5.52 0 10 7 10 8 0 .47-1.11 2.84-4.06 5.94" />
+                </svg>
+            `;
 
             // Theme toggle functionality
             themeToggle.addEventListener('change', function() {
@@ -354,6 +403,21 @@
                     document.body.classList.remove('dark-mode');
                 }
             });
+
+            // Password visibility toggle (SVG swap, not emoji)
+            togglePasswordBtn.addEventListener('click', function() {
+                passwordVisible = !passwordVisible;
+                if (passwordVisible) {
+                    passwordInput.type = 'text';
+                    togglePasswordBtn.innerHTML = eyeOpenSVG;
+                } else {
+                    passwordInput.type = 'password';
+                    togglePasswordBtn.innerHTML = eyeClosedSVG;
+                }
+            });
+
+            // Set default icon
+            togglePasswordBtn.innerHTML = eyeClosedSVG;
 
             // Event listeners for file upload
             uploadArea.addEventListener('click', (e) => {
@@ -425,6 +489,9 @@
                 selectedFile = null;
                 fileInput.value = '';
                 passwordInput.value = '';
+                passwordInput.type = 'password';
+                passwordVisible = false;
+                togglePasswordBtn.innerHTML = eyeClosedSVG;
                 fileInfo.style.display = 'none';
                 progress.style.display = 'none';
                 hideStatus();
